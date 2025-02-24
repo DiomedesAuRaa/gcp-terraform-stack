@@ -1,0 +1,6 @@
+project_id   = "pioneering-coda-451901-i1"
+region       = "us-central1"
+zone         = "us-central1-a"
+cluster_name = "my-gke-cluster"
+network_name = "my-vpc-network"
+subnet_name  = "my-subnet"
