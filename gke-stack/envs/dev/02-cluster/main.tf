@@ -71,9 +71,9 @@ resource "google_container_node_pool" "primary_nodes" {
   node_count = var.node_count
 
   node_config {
-    machine_type    = "e2-standard-4"
-    disk_size_gb    = 100
-    preemptible     = false
+    machine_type = "e2-standard-2"  
+    disk_size_gb = 50  
+    preemptible  = false
     service_account = data.google_service_account.gke_node_sa.email
 
     oauth_scopes = [

@@ -1,1 +1,0 @@
-# Variables for gke module
