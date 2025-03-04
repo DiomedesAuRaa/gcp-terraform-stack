@@ -1,0 +1,1 @@
+# Variables for apps module
