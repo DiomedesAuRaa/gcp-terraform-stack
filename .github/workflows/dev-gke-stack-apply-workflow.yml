@@ -27,7 +27,7 @@ jobs:
           terraform_version: latest
 
       - name: Set up Google Cloud Authentication
-        uses: google-github-actions/auth@v0
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
 
