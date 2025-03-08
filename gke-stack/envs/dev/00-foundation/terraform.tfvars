@@ -1,5 +1,0 @@
-project_id = "pioneering-coda-451901-i1"
-region     = "us-central1"
-# org_id          = "your-org-id"
-# billing_account = "your-billing-account"
-node_service_account = "gke-node@pioneering-coda-451901-i1.iam.gserviceaccount.com"

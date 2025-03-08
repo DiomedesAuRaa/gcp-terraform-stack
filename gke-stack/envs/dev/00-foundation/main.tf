@@ -9,6 +9,7 @@ terraform {
   }
 }
 
+# Provider for Google Cloud
 provider "google" {
   project = var.project_id
   region  = var.region
@@ -27,7 +28,7 @@ resource "google_project_service" "services" {
   disable_on_destroy = false
 }
 
-# Create Service Account for Terraform 
+# Create Service Account for Terraform
 resource "google_service_account" "terraform_sa" {
   project      = var.project_id
   account_id   = "terraform-service-account"
@@ -62,7 +63,6 @@ resource "google_project_iam_member" "gke_node_sa_roles" {
   role    = each.key
   member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
 
-  # Ensure the IAM policy is applied only after the service account is created
   depends_on = [google_service_account.gke_node_sa]
 }
 
