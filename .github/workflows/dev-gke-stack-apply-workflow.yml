@@ -1,21 +1,31 @@
-name: 'Apply GCP Terraform Configuration'
+name: 'Apply GCP Terraform Configuration (Dev)'
 
 on:
-  workflow_dispatch:  # Manual trigger to apply infrastructure
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'gke-stack/envs/dev/**'
 
 permissions:
   id-token: write
   contents: read
 
 concurrency:
-  group: terraform-${{ github.ref }}
-  cancel-in-progress: true
+  group: terraform-dev-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+  TF_VAR_region: "us-central1"
 
 jobs:
   terraform:
-    name: 'Terraform Apply'
+    name: 'Terraform Apply (Dev)'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    environment: development
     
     steps:
       - name: Checkout Current Repository
@@ -24,7 +34,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
+          terraform_version: "1.7.0"
 
       - name: Set up Google Cloud Authentication
         uses: google-github-actions/auth@v2
@@ -45,22 +55,19 @@ jobs:
 
       - name: Initialize Terraform (Foundation)
         working-directory: gke-stack/envs/dev/00-foundation
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Run Terraform Validate (Foundation)
         working-directory: gke-stack/envs/dev/00-foundation
         run: terraform validate
-        continue-on-error: false
 
       - name: Terraform Plan (Foundation)
         working-directory: gke-stack/envs/dev/00-foundation
-        run: terraform plan -out=tfplan-foundation
+        run: terraform plan -out=tfplan-foundation -input=false
 
       - name: Terraform Apply (Foundation)
         working-directory: gke-stack/envs/dev/00-foundation
-        run: terraform apply tfplan-foundation
-        continue-on-error: true
-        if: success()
+        run: terraform apply -input=false tfplan-foundation
 
       # ------------------------
       # 01 Network Module
@@ -77,22 +84,19 @@ jobs:
 
       - name: Initialize Terraform (Network)
         working-directory: gke-stack/envs/dev/01-network
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Run Terraform Validate (Network)
         working-directory: gke-stack/envs/dev/01-network
         run: terraform validate
-        continue-on-error: false
 
       - name: Terraform Plan (Network)
         working-directory: gke-stack/envs/dev/01-network
-        run: terraform plan -out=tfplan-network
+        run: terraform plan -out=tfplan-network -input=false
 
       - name: Terraform Apply (Network)
         working-directory: gke-stack/envs/dev/01-network
-        run: terraform apply tfplan-network
-        continue-on-error: true
-        if: success()
+        run: terraform apply -input=false tfplan-network
 
       # ------------------------
       # 02 Cluster Module
@@ -112,22 +116,19 @@ jobs:
 
       - name: Initialize Terraform (Cluster)
         working-directory: gke-stack/envs/dev/02-cluster
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Run Terraform Validate (Cluster)
         working-directory: gke-stack/envs/dev/02-cluster
         run: terraform validate
-        continue-on-error: false
 
       - name: Terraform Plan (Cluster)
         working-directory: gke-stack/envs/dev/02-cluster
-        run: terraform plan -out=tfplan-cluster
+        run: terraform plan -out=tfplan-cluster -input=false
 
       - name: Terraform Apply (Cluster)
         working-directory: gke-stack/envs/dev/02-cluster
-        run: terraform apply tfplan-cluster
-        continue-on-error: true
-        if: success()
+        run: terraform apply -input=false tfplan-cluster
 
       # Discord Notifications
       - name: Notify Discord on Success
@@ -135,7 +136,7 @@ jobs:
         run: |
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d '{"content": "✅ **Terraform Apply Workflow Succeeded!**\n\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nRun ID: ${{ github.run_id }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            -d '{"content": "✅ **Dev Terraform Apply Succeeded!**\n\n🔧 Environment: Development\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nTriggered by: ${{ github.actor }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify Discord on Failure
@@ -143,5 +144,6 @@ jobs:
         run: |
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d '{"content": "❌ **Terraform Apply Workflow Failed!**\n\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nRun ID: ${{ github.run_id }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-            ${{ secrets.DISCORD_WEBHOOK_URL }} 
+            -d '{"content": "❌ **Dev Terraform Apply Failed!**\n\n🔧 Environment: Development\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nTriggered by: ${{ github.actor }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
+ 

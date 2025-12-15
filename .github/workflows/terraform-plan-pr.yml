@@ -1,0 +1,232 @@
+name: 'Terraform Plan (PR Review)'
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'gke-stack/**'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-plan-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: 'Detect Changed Environments'
+    runs-on: ubuntu-latest
+    outputs:
+      dev_changed: ${{ steps.changes.outputs.dev }}
+      prod_changed: ${{ steps.changes.outputs.prod }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            dev:
+              - 'gke-stack/envs/dev/**'
+            prod:
+              - 'gke-stack/envs/prod/**'
+
+  plan-dev:
+    name: 'Plan Dev Environment'
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dev_changed == 'true'
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Set up Google Cloud Authentication
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
+
+      - name: Create terraform.tfvars for Foundation
+        working-directory: gke-stack/envs/dev/00-foundation
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id = "${{ secrets.GCP_PROJECT_ID }}"
+          region     = "us-central1"
+          EOF
+
+      - name: Plan Foundation
+        id: plan-foundation
+        working-directory: gke-stack/envs/dev/00-foundation
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Create terraform.tfvars for Network
+        working-directory: gke-stack/envs/dev/01-network
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id   = "${{ secrets.GCP_PROJECT_ID }}"
+          region       = "us-central1"
+          network_name = "dev-network"
+          EOF
+
+      - name: Plan Network
+        id: plan-network
+        working-directory: gke-stack/envs/dev/01-network
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Create terraform.tfvars for Cluster
+        working-directory: gke-stack/envs/dev/02-cluster
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id      = "${{ secrets.GCP_PROJECT_ID }}"
+          region          = "us-central1"
+          cluster_name    = "dev-cluster"
+          node_count      = 3
+          network_name    = "dev-network"
+          subnetwork_name = "dev-network-subnet-private"
+          EOF
+
+      - name: Plan Cluster
+        id: plan-cluster
+        working-directory: gke-stack/envs/dev/02-cluster
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Comment PR with Plan Results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### 🔧 Dev Environment Terraform Plan Results
+            
+            | Module | Status |
+            |--------|--------|
+            | Foundation | ${{ steps.plan-foundation.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            | Network | ${{ steps.plan-network.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            | Cluster | ${{ steps.plan-cluster.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            
+            *Triggered by @${{ github.actor }} in PR #${{ github.event.pull_request.number }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  plan-prod:
+    name: 'Plan Prod Environment'
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.prod_changed == 'true'
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Set up Google Cloud Authentication
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON_PROD }}
+
+      - name: Create terraform.tfvars for Foundation
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region     = "us-central1"
+          EOF
+
+      - name: Plan Foundation
+        id: plan-foundation
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Create terraform.tfvars for Network
+        working-directory: gke-stack/envs/prod/01-network
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id   = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region       = "us-central1"
+          network_name = "prod-vpc"
+          EOF
+
+      - name: Plan Network
+        id: plan-network
+        working-directory: gke-stack/envs/prod/01-network
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Create terraform.tfvars for Cluster
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id      = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region          = "us-central1"
+          cluster_name    = "prod-cluster"
+          node_count      = 3
+          network_name    = "prod-vpc"
+          subnetwork_name = "prod-vpc-subnet-private"
+          machine_type    = "e2-standard-4"
+          disk_size_gb    = 100
+          EOF
+
+      - name: Plan Cluster
+        id: plan-cluster
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -no-color 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Comment PR with Plan Results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### 🏭 Prod Environment Terraform Plan Results
+            
+            ⚠️ **WARNING: This PR contains production changes!**
+            
+            | Module | Status |
+            |--------|--------|
+            | Foundation | ${{ steps.plan-foundation.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            | Network | ${{ steps.plan-network.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            | Cluster | ${{ steps.plan-cluster.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            
+            *Triggered by @${{ github.actor }} in PR #${{ github.event.pull_request.number }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });

@@ -1,0 +1,161 @@
+name: 'Apply GCP Terraform Configuration (Prod)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_prod:
+        description: 'Type "DEPLOY-PROD" to confirm production deployment'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-prod-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID_PROD }}
+  TF_VAR_region: "us-central1"
+
+jobs:
+  validate-input:
+    name: 'Validate Deployment Confirmation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation input
+        if: ${{ github.event.inputs.confirm_prod != 'DEPLOY-PROD' }}
+        run: |
+          echo "❌ Production deployment not confirmed. Please type 'DEPLOY-PROD' to proceed."
+          exit 1
+
+  terraform:
+    name: 'Terraform Apply (Prod)'
+    runs-on: ubuntu-latest
+    needs: validate-input
+    timeout-minutes: 45
+    environment: production
+    
+    steps:
+      - name: Checkout Current Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Set up Google Cloud Authentication
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON_PROD }}
+
+      # ------------------------
+      # 00 Foundation Module
+      # ------------------------
+
+      - name: Create terraform.tfvars for Foundation
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region     = "us-central1"
+          EOF
+
+      - name: Initialize Terraform (Foundation)
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: terraform init -input=false
+
+      - name: Run Terraform Validate (Foundation)
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: terraform validate
+
+      - name: Terraform Plan (Foundation)
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: terraform plan -out=tfplan-foundation -input=false
+
+      - name: Terraform Apply (Foundation)
+        working-directory: gke-stack/envs/prod/00-foundation
+        run: terraform apply -input=false tfplan-foundation
+
+      # ------------------------
+      # 01 Network Module
+      # ------------------------
+
+      - name: Create terraform.tfvars for Network
+        working-directory: gke-stack/envs/prod/01-network
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id   = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region       = "us-central1"
+          network_name = "prod-vpc"
+          EOF
+
+      - name: Initialize Terraform (Network)
+        working-directory: gke-stack/envs/prod/01-network
+        run: terraform init -input=false
+
+      - name: Run Terraform Validate (Network)
+        working-directory: gke-stack/envs/prod/01-network
+        run: terraform validate
+
+      - name: Terraform Plan (Network)
+        working-directory: gke-stack/envs/prod/01-network
+        run: terraform plan -out=tfplan-network -input=false
+
+      - name: Terraform Apply (Network)
+        working-directory: gke-stack/envs/prod/01-network
+        run: terraform apply -input=false tfplan-network
+
+      # ------------------------
+      # 02 Cluster Module
+      # ------------------------
+
+      - name: Create terraform.tfvars for Cluster
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id      = "${{ secrets.GCP_PROJECT_ID_PROD }}"
+          region          = "us-central1"
+          cluster_name    = "prod-cluster"
+          node_count      = 3
+          network_name    = "prod-vpc"
+          subnetwork_name = "prod-vpc-subnet-private"
+          machine_type    = "e2-standard-4"
+          disk_size_gb    = 100
+          EOF
+
+      - name: Initialize Terraform (Cluster)
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: terraform init -input=false
+
+      - name: Run Terraform Validate (Cluster)
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: terraform validate
+
+      - name: Terraform Plan (Cluster)
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: terraform plan -out=tfplan-cluster -input=false
+
+      - name: Terraform Apply (Cluster)
+        working-directory: gke-stack/envs/prod/02-cluster
+        run: terraform apply -input=false tfplan-cluster
+
+      # Discord Notifications
+      - name: Notify Discord on Success
+        if: success()
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"content": "✅ **Production Terraform Apply Succeeded!**\n\n🏭 Environment: Production\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nTriggered by: ${{ github.actor }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Notify Discord on Failure
+        if: failure()
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"content": "❌ **Production Terraform Apply Failed!**\n\n🏭 Environment: Production\nRepository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nTriggered by: ${{ github.actor }}\nView run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}

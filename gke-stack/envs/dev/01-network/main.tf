@@ -65,9 +65,9 @@ resource "google_compute_firewall" "allow_internal" {
   source_ranges = ["10.0.0.0/8"]
 }
 
-# Firewall Rule - Allow SSH (if needed for bastion or admin access)
+# Firewall Rule - Allow SSH only from IAP (Identity-Aware Proxy)
 resource "google_compute_firewall" "allow_ssh" {
-  name    = "${var.network_name}-allow-ssh"
+  name    = "${var.network_name}-allow-ssh-iap"
   network = google_compute_network.vpc_network.name
 
   allow {
@@ -75,20 +75,25 @@ resource "google_compute_firewall" "allow_ssh" {
     ports    = ["22"]
   }
 
-  source_ranges = ["0.0.0.0/0"]
+  # IAP IP range for secure SSH access
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["allow-ssh"]
 }
 
-# Firewall Rule - Allow HTTPS (typically for services like IAP or other public access)
+# Firewall Rule - Allow HTTPS for GKE master to node communication and health checks
 resource "google_compute_firewall" "allow_https" {
-  name    = "${var.network_name}-allow-https"
-  network = google_compute_network.vpc_network.name
+  name        = "${var.network_name}-allow-https"
+  network     = google_compute_network.vpc_network.name
+  description = "Allow HTTPS for load balancer health checks and GKE webhooks"
 
   allow {
     protocol = "tcp"
-    ports    = ["443"]
+    ports    = ["443", "8443", "10250"]
   }
 
-  source_ranges = ["0.0.0.0/0"]
+  # GCP health check and load balancer ranges
+  source_ranges = ["35.191.0.0/16", "130.211.0.0/22", "172.16.0.0/28"]
+  target_tags   = ["gke-node"]
 }
 
 # Cloud Router for NAT (to provide internet access for private subnet)

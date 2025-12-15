@@ -42,22 +42,50 @@ resource "google_container_cluster" "primary" {
   subnetwork = data.google_compute_subnetwork.subnet_private.name
 
   remove_default_node_pool = true
-  initial_node_count       = 1  # Required placeholder
+  initial_node_count       = 1
 
   private_cluster_config {
     enable_private_nodes    = true
     enable_private_endpoint = false
-    master_ipv4_cidr_block  = "172.16.0.0/28"  # Adjust if needed
+    master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 
   # Set secondary IP ranges for pods and services
   ip_allocation_policy {
-    cluster_secondary_range_name  = "pods"       # This must match the actual secondary range name
-    services_secondary_range_name = "services"   # Same here
+    cluster_secondary_range_name  = "pods"
+    services_secondary_range_name = "services"
+  }
+
+  # Enable Workload Identity
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
   }
 
   release_channel {
     channel = "REGULAR"
+  }
+
+  # Enable network policy
+  network_policy {
+    enabled  = true
+    provider = "CALICO"
+  }
+
+  # Enable Shielded Nodes
+  node_config {
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+  }
+
+  # Logging and monitoring
+  logging_config {
+    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
+  }
+
+  monitoring_config {
+    enable_components = ["SYSTEM_COMPONENTS"]
   }
 
   deletion_protection = false
@@ -71,8 +99,8 @@ resource "google_container_node_pool" "primary_nodes" {
   node_count = var.node_count
 
   node_config {
-    machine_type = "e2-standard-2"  
-    disk_size_gb = 50  
+    machine_type = "e2-standard-2"
+    disk_size_gb = 50
     preemptible  = false
     service_account = data.google_service_account.gke_node_sa.email
 
@@ -83,5 +111,27 @@ resource "google_container_node_pool" "primary_nodes" {
     metadata = {
       disable-legacy-endpoints = "true"
     }
+
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+
+    tags = ["gke-node", "${var.cluster_name}-node"]
+
+    labels = {
+      environment = "dev"
+      cluster     = var.cluster_name
+    }
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  upgrade_settings {
+    max_surge       = 1
+    max_unavailable = 0
   }
 }

@@ -1,97 +1,250 @@
-Sure! Here's a README with a simple summary based on our conversation:
-
----
-
 # GKE Cluster Setup with Terraform
 
-This README provides a simple guide for setting up a GKE (Google Kubernetes Engine) cluster with Terraform. It covers the process of creating the required GCP resources, such as the VPC network, subnetwork, and the GKE cluster, all managed by Terraform. This setup will first focus on a Dev environment, but can be easily repeated or adjusted for other environments like Production.
+This repository provides Infrastructure as Code (IaC) for deploying Google Kubernetes Engine (GKE) clusters using Terraform. It supports both **development** and **production** environments with proper security controls, CI/CD automation, and reusable modules.
 
-## Steps to Deploy the GKE Cluster
+## Architecture
 
-### 1. Create the S3 Bucket for Managing Terraform State
-
-This step needs to be done manually. We will use Google Cloud Storage to manage the Terraform state.
-
-```bash
-gsutil mb -l us-central1 -b on gs://terraform-state-bucket
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         GCP Project                              │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    VPC Network                              │ │
+│  │  ┌──────────────┐  ┌──────────────────────────────────────┐ │ │
+│  │  │Public Subnet │  │         Private Subnet               │ │ │
+│  │  │ (Bastion)    │  │  ┌─────────────────────────────────┐ │ │ │
+│  │  │              │  │  │         GKE Cluster              │ │ │ │
+│  │  │              │  │  │  ┌─────┐ ┌─────┐ ┌─────┐        │ │ │ │
+│  │  │              │  │  │  │Node │ │Node │ │Node │        │ │ │ │
+│  │  │              │  │  │  └─────┘ └─────┘ └─────┘        │ │ │ │
+│  │  │              │  │  └─────────────────────────────────┘ │ │ │
+│  │  └──────────────┘  └──────────────────────────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              │                                   │
+│                    ┌─────────┴─────────┐                        │
+│                    │    Cloud NAT      │                        │
+│                    └───────────────────┘                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2. Apply the Terraform Configuration for Each Module
+## Features
 
-#### a. CD into the `envs/dev` directory
+- ✅ **Multi-environment support** (dev/prod)
+- ✅ **Private GKE clusters** with Cloud NAT for outbound traffic
+- ✅ **Least-privilege IAM** roles for security
+- ✅ **Workload Identity** for pod authentication
+- ✅ **Network policies** with Calico
+- ✅ **Shielded GKE nodes** with secure boot
+- ✅ **CI/CD with GitHub Actions** including PR plan reviews
+- ✅ **Reusable Terraform modules**
 
-```bash
-cd envs/dev
-```
+## Prerequisites
 
-#### b. Apply the `00-foundation` Module
-- Create a `tfvars` file with your variables specific to the foundation setup (e.g., project ID, region, etc.)
-- Apply the `00-foundation` module to set up the basic foundation resources.
+1. **GCP Project** with billing enabled
+2. **Service Account** with required permissions
+3. **GCS Bucket** for Terraform state storage
+4. **GitHub Secrets** configured for CI/CD
 
-```bash
-terraform apply -var-file="00-foundation.tfvars"
-```
+### Required GitHub Secrets
 
-#### c. Apply the `01-network` Module
-- Create a `tfvars` file with your network-specific variables (e.g., network name, subnet configurations, etc.)
-- Apply the `01-network` module to create the VPC network and subnets for your GKE cluster.
+| Secret | Description |
+|--------|-------------|
+| `GCP_CREDENTIALS_JSON` | Service account key for dev environment |
+| `GCP_PROJECT_ID` | GCP project ID for dev |
+| `GCP_CREDENTIALS_JSON_PROD` | Service account key for prod environment |
+| `GCP_PROJECT_ID_PROD` | GCP project ID for prod |
+| `DISCORD_WEBHOOK_URL` | Discord webhook for notifications (optional) |
 
-```bash
-terraform apply -var-file="01-network.tfvars"
-```
-
-#### d. Apply the `02-cluster` Module
-- Create a `tfvars` file with your GKE cluster-specific variables (e.g., cluster name, node count, service account, etc.)
-- Apply the `02-cluster` module to set up your GKE cluster in the network and subnetwork created in step 2b.
-
-```bash
-terraform apply -var-file="02-cluster.tfvars"
-```
-
-### 3. Verify the GKE Cluster
-
-After applying all the modules, you should have a fully functioning GKE cluster in the Dev environment.
-
-- You can verify the cluster is up and running by checking in the Google Cloud Console or using `gcloud` CLI commands to interact with the cluster.
-
-### 4. Repeat for Other Environments (Optional)
-
-To create clusters in other environments (e.g., Production), repeat the above steps but with different variables for the environment-specific configuration.
-
-```bash
-# For example, switch to the prod directory
-cd envs/prod
-```
-
-Repeat the `terraform apply` steps for each environment to create isolated GKE clusters with the appropriate configurations.
-
----
-
-## Directory Structure Overview
+## Directory Structure
 
 ```
 .
-├── envs/
-│   ├── dev/
-│   │   ├── 00-foundation/
-│   │   ├── 01-network/
-│   │   ├── 02-cluster/
-│   │   ├── 00-foundation.tfvars
-│   │   ├── 01-network.tfvars
-│   │   ├── 02-cluster.tfvars
-│   └── prod/ (optional, for prod environment)
-├── modules/
-│   ├── 00-foundation/
-│   ├── 01-network/
-│   └── 02-cluster/
-├── main.tf
-├── variables.tf
-└── terraform.tfvars
+├── .github/
+│   └── workflows/
+│       ├── dev-gke-stack-apply-workflow.yml    # Dev deployment
+│       ├── prod-gke-stack-apply-workflow.yml   # Prod deployment (manual)
+│       └── terraform-plan-pr.yml               # PR plan reviews
+├── modules/                                     # Reusable modules
+│   ├── foundation/                             # APIs, Service Accounts
+│   ├── network/                                # VPC, Subnets, Firewall
+│   └── gke-cluster/                            # GKE Cluster, Node Pools
+└── gke-stack/
+    └── envs/
+        ├── dev/
+        │   ├── 00-foundation/
+        │   ├── 01-network/
+        │   └── 02-cluster/
+        └── prod/
+            ├── 00-foundation/
+            ├── 01-network/
+            └── 02-cluster/
 ```
 
-## Notes:
-- Ensure the service account `gke-node-sa` exists in your project, or modify the account ID to match your existing GKE node service account.
-- The state management for Terraform is handled by the Google Cloud Storage bucket you created, ensuring that Terraform’s state is stored remotely and can be shared across teams.
-- After initial setup, you can customize and scale your GKE clusters based on the environment's needs.
+## Quick Start
 
---- 
+### 1. Create the GCS Bucket for Terraform State
+
+```bash
+gsutil mb -l us-central1 -b on gs://terraform-state-bucket-skywalker
+gsutil versioning set on gs://terraform-state-bucket-skywalker
+```
+
+### 2. Deploy via GitHub Actions (Recommended)
+
+1. Push changes to the `main` branch to trigger dev deployment
+2. Use the `workflow_dispatch` trigger for manual deployments
+3. For production, trigger the prod workflow and confirm with `DEPLOY-PROD`
+
+### 3. Deploy Manually
+
+```bash
+cd gke-stack/envs/dev
+
+# Deploy Foundation
+cd 00-foundation
+terraform init
+terraform plan -var-file="terraform.tfvars"
+terraform apply -var-file="terraform.tfvars"
+
+# Deploy Network
+cd ../01-network
+terraform init
+terraform plan -var-file="terraform.tfvars"
+terraform apply -var-file="terraform.tfvars"
+
+# Deploy Cluster
+cd ../02-cluster
+terraform init
+terraform plan -var-file="terraform.tfvars"
+terraform apply -var-file="terraform.tfvars"
+```
+
+### 4. Connect to the Cluster
+
+```bash
+gcloud container clusters get-credentials dev-cluster \
+  --region us-central1 \
+  --project YOUR_PROJECT_ID
+
+kubectl get nodes
+```
+
+## Module Reference
+
+### Foundation Module
+
+Creates essential GCP resources:
+- Enables required APIs (Compute, Container, IAM, etc.)
+- Terraform service account with least-privilege roles
+- GKE node service account with minimal permissions
+
+### Network Module
+
+Sets up networking infrastructure:
+- VPC network with custom subnets
+- Private subnet with secondary ranges for pods/services
+- Cloud NAT for outbound internet access
+- Firewall rules (IAP SSH, internal, health checks)
+
+### GKE Cluster Module
+
+Deploys the Kubernetes cluster:
+- Private cluster with optional private endpoint
+- Workload Identity enabled
+- Network policies (Calico)
+- Shielded nodes with secure boot
+- Configurable logging and monitoring
+
+## Security Features
+
+| Feature | Description |
+|---------|-------------|
+| **Private Cluster** | Nodes have no public IPs |
+| **IAP SSH** | SSH access only through Identity-Aware Proxy |
+| **Least Privilege IAM** | Minimal required permissions |
+| **Workload Identity** | Secure pod-to-GCP authentication |
+| **Shielded Nodes** | Secure boot and integrity monitoring |
+| **Network Policies** | Calico for pod-to-pod restrictions |
+
+## CI/CD Workflows
+
+### Dev Workflow (`dev-gke-stack-apply-workflow.yml`)
+- Triggers on push to `main` or manual dispatch
+- Automatically deploys all three modules
+- Sends Discord notifications
+
+### Prod Workflow (`prod-gke-stack-apply-workflow.yml`)
+- Manual trigger only with confirmation
+- Requires `DEPLOY-PROD` confirmation
+- Uses separate credentials and project
+
+### PR Plan Workflow (`terraform-plan-pr.yml`)
+- Runs `terraform plan` on pull requests
+- Posts plan results as PR comments
+- Warns about production changes
+
+## Customization
+
+### Using the Reusable Modules
+
+```hcl
+module "foundation" {
+  source = "../../modules/foundation"
+
+  project_id  = var.project_id
+  region      = var.region
+  environment = "dev"
+}
+
+module "network" {
+  source = "../../modules/network"
+
+  project_id   = var.project_id
+  region       = var.region
+  network_name = "my-network"
+}
+
+module "cluster" {
+  source = "../../modules/gke-cluster"
+
+  project_id                 = var.project_id
+  region                     = var.region
+  cluster_name               = "my-cluster"
+  network_name               = module.network.network_name
+  subnetwork_name            = module.network.private_subnet_name
+  node_service_account_email = module.foundation.gke_node_service_account_email
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **API not enabled**: Ensure all required APIs are enabled via the foundation module
+2. **Quota exceeded**: Check GCP quotas for CPUs, IPs, etc.
+3. **Permission denied**: Verify service account has correct IAM roles
+4. **State lock**: Check if another Terraform process is running
+
+### Useful Commands
+
+```bash
+# Check cluster status
+gcloud container clusters describe dev-cluster --region us-central1
+
+# View node pools
+gcloud container node-pools list --cluster dev-cluster --region us-central1
+
+# Check firewall rules
+gcloud compute firewall-rules list --filter="network:dev-network"
+```
+
+## Contributing
+
+1. Create a feature branch
+2. Make changes
+3. Submit a PR - the plan workflow will run automatically
+4. Request review
+5. Merge after approval
+
+## License
+
+MIT License

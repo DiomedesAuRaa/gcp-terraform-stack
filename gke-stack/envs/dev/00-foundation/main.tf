@@ -35,10 +35,15 @@ resource "google_service_account" "terraform_sa" {
   display_name = "Terraform Service Account"
 }
 
-# IAM Binding for Terraform Service Account
+# IAM Binding for Terraform Service Account (least privilege)
 resource "google_project_iam_member" "terraform_sa_roles" {
   for_each = toset([
-    "roles/owner",  
+    "roles/compute.admin",
+    "roles/container.admin",
+    "roles/iam.serviceAccountAdmin",
+    "roles/iam.serviceAccountUser",
+    "roles/resourcemanager.projectIamAdmin",
+    "roles/storage.admin",
   ])
   project = var.project_id
   role    = each.key
@@ -56,7 +61,10 @@ resource "google_service_account" "gke_node_sa" {
 resource "google_project_iam_member" "gke_node_sa_roles" {
   for_each = toset([
     "roles/container.nodeServiceAccount",
-    "roles/storage.admin"
+    "roles/logging.logWriter",
+    "roles/monitoring.metricWriter",
+    "roles/monitoring.viewer",
+    "roles/storage.objectViewer",
   ])
 
   project = var.project_id
